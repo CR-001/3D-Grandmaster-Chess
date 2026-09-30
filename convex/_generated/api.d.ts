@@ -8,13 +8,19 @@
  * @module
  */
 
+import type * as eveSessions from "../eveSessions.js";
+import type * as games from "../games.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  eveSessions: typeof eveSessions;
+  games: typeof games;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
