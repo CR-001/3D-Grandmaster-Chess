@@ -5,12 +5,39 @@ import Link from "next/link";
 import { Chess } from "chess.js";
 import { useAuth, useUser, SignInButton, UserButton } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
-import { Client } from "eve/client";
+import { Client, type ClientSession } from "eve/client";
 import { useEveAgent } from "eve/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { ArrowLeftRight, ArrowUpRight, Bot, Crown, GraduationCap, Lightbulb, LoaderCircle, MessageCircle, RotateCcw, Sparkles, Swords, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+type CoachSession = { client: Client; session: ClientSession; restored: boolean; storageKey: string };
+const coachSessionLoads = new Map<string, Promise<CoachSession>>();
+
+function loadCoachSession(client: Client, storageKey: string, register: (args: { sessionId: string }) => Promise<null>) {
+  const pending = coachSessionLoads.get(storageKey);
+  if (pending) return pending;
+
+  const promise = (async (): Promise<CoachSession> => {
+    const savedSessionId = window.sessionStorage.getItem(storageKey);
+    if (savedSessionId) {
+      return { client, session: client.sessions.attach(savedSessionId), restored: true, storageKey };
+    }
+
+    const created = await client.sessions.create();
+    const sessionId = created.session.state.sessionId;
+    await register({ sessionId });
+    window.sessionStorage.setItem(storageKey, sessionId);
+    return { client, session: created.session, restored: false, storageKey };
+  })();
+
+  coachSessionLoads.set(storageKey, promise);
+  void promise.catch(() => {
+    if (coachSessionLoads.get(storageKey) === promise) coachSessionLoads.delete(storageKey);
+  });
+  return promise;
+}
 
 const ChessScene = dynamic(() => import("./ChessScene"), {
   ssr: false,
@@ -25,52 +52,70 @@ const levels = [
   { name: "Grandmaster", detail: "Bring your best game", skill: 20, depth: 14 },
 ];
 
-function CoachChat({ fen, recentMoves, bestMove, level }: { fen: string; recentMoves: string[]; bestMove: string | null; level: string }) {
+function CoachChat({ userId, fen, recentMoves, bestMove, level }: { userId: string; fen: string; recentMoves: string[]; bestMove: string | null; level: string }) {
   const { getToken } = useAuth();
   const registerSession = useMutation(api.eveSessions.register);
-  const [session, setSession] = useState<import("eve/client").ClientSession | null>(null);
+  const [coachSession, setCoachSession] = useState<CoachSession | null>(null);
   const [sessionError, setSessionError] = useState(false);
+  const [retryIndex, setRetryIndex] = useState(0);
+  const clientRef = useRef<Client | null>(null);
+  const storageKey = `chessmaster:coach-session:${userId}`;
+
+  const makeClient = useCallback(() => new Client({
+    host: window.location.origin,
+    redirect: "error",
+    auth: {
+      bearer: async () => {
+        const token = await getToken();
+        if (!token) throw new Error("Sign in to start a coaching session.");
+        return token;
+      },
+    },
+  }), [getToken]);
 
   useEffect(() => {
     let cancelled = false;
-    const client = new Client({
-      host: window.location.origin,
-      redirect: "error",
-      auth: {
-        bearer: async () => {
-          const token = await getToken();
-          if (!token) throw new Error("Sign in to start a coaching session.");
-          return token;
-        },
-      },
-    });
+    const client = makeClient();
+    clientRef.current = client;
 
-    void (async () => {
-      try {
-        const created = await client.sessions.create();
-        await registerSession({ sessionId: created.session.state.sessionId });
-        if (!cancelled) setSession(created.session);
-      } catch {
-        if (!cancelled) setSessionError(true);
-      }
-    })();
+    void loadCoachSession(client, storageKey, registerSession)
+      .then((loaded) => { if (!cancelled) setCoachSession(loaded); })
+      .catch(() => { if (!cancelled) setSessionError(true); });
 
     return () => { cancelled = true; };
-  }, [getToken, registerSession]);
+  }, [makeClient, registerSession, retryIndex, storageKey]);
 
-  if (!session) {
-    return <section className="flex min-h-[520px] items-center justify-center rounded-3xl border border-white/[0.08] bg-[#17211c] p-6 text-center text-sm text-white/50">
-      {sessionError ? "The tutor could not start a private coaching session." : "Starting your private coaching session…"}
+  async function startFreshConversation() {
+    const client = clientRef.current ?? makeClient();
+    clientRef.current = client;
+    window.sessionStorage.removeItem(storageKey);
+    coachSessionLoads.delete(storageKey);
+    setCoachSession(null);
+    setSessionError(false);
+    try {
+      setCoachSession(await loadCoachSession(client, storageKey, registerSession));
+    } catch {
+      setSessionError(true);
+    }
+  }
+
+  if (!coachSession) {
+    return <section role="status" aria-live="polite" className="flex min-h-[520px] flex-col justify-center gap-5 rounded-3xl border border-white/[0.08] bg-[#17211c] p-6">
+      {sessionError ? <div className="text-center text-sm text-white/55">Your coaching conversation could not be opened.<Button onClick={() => { setSessionError(false); setRetryIndex((index) => index + 1); }} variant="ghost" className="mt-3 h-9 rounded-full text-xs text-[#c4e8a4]">Try again</Button></div> : <>
+        <div className="mx-auto flex items-center gap-2 text-sm text-white/65"><span className="size-2 animate-pulse rounded-full bg-[#b8dc9a]" />Preparing your private chess lesson…</div>
+        <div className="mx-auto w-full max-w-[250px] space-y-3"><div className="h-12 animate-pulse rounded-2xl bg-white/[0.045]" /><div className="ml-auto h-9 w-2/3 animate-pulse rounded-2xl bg-[#c4e8a4]/[0.08]" /><div className="h-16 w-5/6 animate-pulse rounded-2xl bg-white/[0.045]" /></div>
+      </>}
     </section>;
   }
 
-  return <ActiveCoachChat session={session} fen={fen} recentMoves={recentMoves} bestMove={bestMove} level={level} />;
+  return <ActiveCoachChat {...coachSession} onStartFresh={() => void startFreshConversation()} fen={fen} recentMoves={recentMoves} bestMove={bestMove} level={level} />;
 }
 
-function ActiveCoachChat({ session, fen, recentMoves, bestMove, level }: { session: import("eve/client").ClientSession; fen: string; recentMoves: string[]; bestMove: string | null; level: string }) {
+function ActiveCoachChat({ session, restored, onStartFresh, fen, recentMoves, bestMove, level }: { session: ClientSession; restored: boolean; onStartFresh: () => void; fen: string; recentMoves: string[]; bestMove: string | null; level: string }) {
   const { getToken } = useAuth();
   const agent = useEveAgent({
     session,
+    resume: restored,
     auth: {
       bearer: async () => {
         const token = await getToken();
@@ -81,34 +126,47 @@ function ActiveCoachChat({ session, fen, recentMoves, bestMove, level }: { sessi
   });
   const [draft, setDraft] = useState("");
   const busy = agent.status === "submitted" || agent.status === "streaming" || agent.status === "resuming";
+  const restoring = restored && agent.status === "resuming";
 
   function send(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const question = draft.trim();
     if (!question || busy) return;
     setDraft("");
-    void agent.send(`${question}\n\nLive game context:\nDifficulty: ${level}\nPosition (FEN): ${fen}\nRecent moves: ${recentMoves.join(" ") || "starting position"}\nEngine's best move: ${bestMove ?? "not analyzed yet"}`);
+    void agent.send(question, {
+      clientContext: {
+        source: "Chessmaster live board",
+        difficulty: level,
+        fen,
+        recentMoves,
+        engineBestMove: bestMove,
+      },
+    });
   }
 
   return (
     <section className="flex min-h-[520px] flex-col rounded-3xl border border-white/[0.08] bg-[#17211c] shadow-[0_24px_70px_-34px_rgba(0,0,0,.8)]">
       <header className="flex items-center gap-3 border-b border-white/[0.07] px-5 py-4">
         <div className="grid size-10 place-items-center rounded-2xl bg-[#c4e8a4]/10 text-[#c4e8a4]"><Sparkles size={18} /></div>
-        <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-[#f0f1de]">Your chess tutor</div><div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/40"><span className="size-1.5 rounded-full bg-[#b5db8e]" />Knows this position</div></div>
+        <div className="min-w-0 flex-1"><div className="text-sm font-semibold text-[#f0f1de]">Your chess tutor</div><div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/40"><span className={`size-1.5 rounded-full ${restoring ? "animate-pulse bg-[#d2b477]" : "bg-[#b5db8e]"}`} />{restoring ? "Restoring your last lesson" : "Ready to help with the board"}</div></div>
         <span className="rounded-full border border-[#c4e8a4]/20 px-2.5 py-1 text-[10px] font-semibold tracking-[.14em] text-[#c4e8a4]">PRO</span>
       </header>
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {agent.data.messages.length === 0 && <div className="flex h-full min-h-[320px] flex-col items-center justify-center px-4 text-center">
+        {restoring && agent.data.messages.length === 0 && <div role="status" aria-live="polite" className="space-y-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="flex items-center gap-2 text-[11px] text-[#d2b477]"><LoaderCircle className="animate-spin" size={13} />Reconnecting to your last lesson…</div>
+          <div className="space-y-3"><div className="h-12 w-5/6 animate-pulse rounded-2xl bg-white/[0.05]" /><div className="ml-auto h-9 w-2/3 animate-pulse rounded-2xl bg-[#c4e8a4]/[0.08]" /><div className="h-16 w-4/5 animate-pulse rounded-2xl bg-white/[0.05]" /></div>
+        </div>}
+        {agent.data.messages.length === 0 && !restoring && <div className="flex h-full min-h-[320px] flex-col items-center justify-center px-4 text-center">
           <div className="mb-5 grid size-16 place-items-center rounded-[22px] border border-[#c4e8a4]/15 bg-[#c4e8a4]/[0.06] text-[#c4e8a4]"><GraduationCap size={26} /></div>
           <p className="max-w-[220px] text-[15px] font-semibold leading-6 text-[#f0f1de]">A stronger game starts with one good question.</p>
-          <p className="mt-2 max-w-[230px] text-xs leading-5 text-white/45">Ask about a tactic, a plan, or the engine’s top move.</p>
-          <div className="mt-6 flex flex-wrap justify-center gap-2">{["What should I look for?", "Explain this position"].map((prompt) => <button key={prompt} type="button" onClick={() => setDraft(prompt)} className="rounded-full border border-white/10 px-3 py-2 text-[11px] text-white/60 transition hover:border-[#c4e8a4]/30 hover:text-[#eaf5df]">{prompt}</button>)}</div>
+          <p className="mt-2 max-w-[230px] text-xs leading-5 text-white/45">Ask what to notice, what to try, or why a move helps.</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2">{["What should I look for?", "Why did that move help?"].map((prompt) => <button key={prompt} type="button" onClick={() => setDraft(prompt)} className="rounded-full border border-white/10 px-3 py-2 text-[11px] text-white/60 transition hover:border-[#c4e8a4]/30 hover:text-[#eaf5df]">{prompt}</button>)}</div>
         </div>}
         {agent.data.messages.map((message) => <article key={message.id} className={`max-w-[94%] rounded-2xl px-3.5 py-3 text-[13px] leading-6 ${message.role === "user" ? "ml-auto bg-[#2c4134] text-[#e7f2df]" : "border border-white/[0.06] bg-white/[0.035] text-white/75"}`}>
           {message.parts.map((part, index) => part.type === "text" ? <p key={index} className="whitespace-pre-wrap">{part.text}</p> : null)}
         </article>)}
-        {busy && <div className="flex items-center gap-2 px-2 text-xs text-[#c4e8a4]/75"><LoaderCircle className="animate-spin" size={14} />Thinking through the position…</div>}
-        {agent.error && <p className="rounded-xl border border-rose-300/15 bg-rose-300/[0.05] px-3 py-2 text-xs text-rose-200/80">The tutor could not connect just now. Check that an Eve model connection is configured.</p>}
+        {busy && !restoring && <div className="flex items-center gap-2 px-2 text-xs text-[#c4e8a4]/75"><LoaderCircle className="animate-spin" size={14} />Thinking through the board…</div>}
+        {agent.error && <div role="alert" className="rounded-2xl border border-rose-300/15 bg-rose-300/[0.05] p-3.5"><p className="text-xs font-medium text-rose-100/85">The tutor hit a snag.</p><p className="mt-1 text-[11px] leading-5 text-rose-100/60">Try reconnecting to this lesson, or start a fresh one.</p><div className="mt-3 flex gap-2"><Button onClick={() => { void agent.resume().catch(() => undefined); }} variant="outline" className="h-8 rounded-full border-white/10 bg-transparent px-3 text-[10px] text-white/70">Reconnect</Button><Button onClick={onStartFresh} variant="ghost" className="h-8 rounded-full px-3 text-[10px] text-[#c4e8a4]">Start fresh</Button></div></div>}
       </div>
       <form onSubmit={send} className="m-3 flex items-center gap-2 rounded-2xl border border-white/10 bg-[#111a15] p-2 pl-3 focus-within:border-[#c4e8a4]/35">
         <input value={draft} onChange={(event) => setDraft(event.currentTarget.value)} placeholder="Ask your chess tutor…" className="min-w-0 flex-1 bg-transparent py-2 text-xs text-white outline-none placeholder:text-white/30" />
@@ -119,7 +177,7 @@ function ActiveCoachChat({ session, fen, recentMoves, bestMove, level }: { sessi
 }
 
 export function ChessmasterApp() {
-  const { isLoaded, isSignedIn, has } = useAuth();
+  const { isLoaded, isSignedIn, has, userId } = useAuth();
   const { user } = useUser();
   const canTutor = has?.({ feature: "ai_tutor" }) ?? false;
   const [mode, setMode] = useState<"idle" | "ai" | "online">("idle");
@@ -372,7 +430,7 @@ export function ChessmasterApp() {
           </section>
 
           <aside id="learn" className="space-y-4">
-            {isLoaded && isSignedIn && canTutor ? <CoachChat fen={fen} recentMoves={recentMoves.slice(-16)} bestMove={hint ? `${hint.from}${hint.to}` : null} level={mode === "ai" ? currentLevel.name : mode === "online" ? "Online game" : "Practice"} /> : <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-3xl border border-[#c4e8a4]/15 bg-[radial-gradient(ellipse_at_top_right,rgba(160,204,127,.12),transparent_55%),#17211c] p-5">
+            {isLoaded && isSignedIn && canTutor ? <CoachChat key={userId ?? "coach"} userId={userId ?? ""} fen={fen} recentMoves={recentMoves.slice(-16)} bestMove={hint ? `${hint.from}${hint.to}` : null} level={mode === "ai" ? currentLevel.name : mode === "online" ? "Online game" : "Practice"} /> : <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-3xl border border-[#c4e8a4]/15 bg-[radial-gradient(ellipse_at_top_right,rgba(160,204,127,.12),transparent_55%),#17211c] p-5">
               <div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-2xl border border-[#c4e8a4]/20 bg-[#c4e8a4]/[0.08] text-[#c4e8a4]"><Sparkles size={18} /></div><div><div className="text-sm font-semibold">Chessmaster Pro</div><div className="mt-0.5 text-[10px] text-white/40">Your personal AI coach</div></div></div>
               <div className="my-7 h-px bg-white/[0.07]" />
               <div className="flex flex-1 flex-col items-center justify-center text-center"><div className="relative mb-6 grid size-[104px] place-items-center rounded-[32px] border border-[#c4e8a4]/15 bg-[#c4e8a4]/[0.04]"><div className="absolute inset-3 rounded-[25px] border border-[#c4e8a4]/10" /><GraduationCap size={34} className="text-[#c4e8a4]" /><span className="absolute right-3 top-3 size-2 rounded-full bg-[#c4e8a4] shadow-[0_0_12px_#c4e8a4]" /></div><h3 className="max-w-[240px] text-xl font-semibold leading-7 tracking-[-.025em]">See the move. <span className="text-[#b8dc9a]">Understand the why.</span></h3><p className="mt-3 max-w-[250px] text-xs leading-5 text-white/45">An on-board AI tutor that reads your position, explains engine lines, and answers your chess questions.</p>

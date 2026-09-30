@@ -1,6 +1,6 @@
 "use client";
 
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import type { Color } from "chess.js";
 import { useMemo } from "react";
@@ -98,6 +98,20 @@ function Board({ pieces, orientation, selected, targets, hint, onSquareClick }: 
           </group>
         );
       })}
+      {Array.from({ length: 8 }, (_, index) => {
+        const file = String.fromCharCode(orientation === "white" ? 97 + index : 104 - index);
+        const rank = String(orientation === "white" ? 8 - index : index + 1);
+        const x = -3.5 + index;
+        const z = -3.5 + index;
+        return (
+          <group key={`coordinates-${index}`}>
+            <Text raycast={() => null} position={[x, 0.052, -4.12]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.19} color="#293b30" anchorX="center" anchorY="middle">{file}</Text>
+            <Text raycast={() => null} position={[x, 0.052, 4.12]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.19} color="#293b30" anchorX="center" anchorY="middle">{file}</Text>
+            <Text raycast={() => null} position={[-4.12, 0.052, z]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.19} color="#293b30" anchorX="center" anchorY="middle">{rank}</Text>
+            <Text raycast={() => null} position={[4.12, 0.052, z]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.19} color="#293b30" anchorX="center" anchorY="middle">{rank}</Text>
+          </group>
+        );
+      })}
       {pieces.map((piece) => {
         const [x, z] = mapped.coord(piece.square);
         return <group key={piece.square} position={[x, 0.04, z]} onClick={(event) => { event.stopPropagation(); onSquareClick(piece.square); }}><Piece type={piece.type} color={piece.color} /></group>;
@@ -115,7 +129,7 @@ export default function ChessScene(props: {
   onSquareClick: (square: string) => void;
 }) {
   return (
-    <Canvas shadows dpr={[1, 1.5]} camera={{ position: [8.8, 9.4, 10.2], fov: 33 }}>
+    <Canvas shadows dpr={[1, 1.5]} camera={{ position: [10.2, 12, 13], fov: 36 }}>
       <color attach="background" args={["#17211c"]} />
       <ambientLight intensity={1.4} />
       <directionalLight position={[4, 10, 5]} intensity={3.2} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
