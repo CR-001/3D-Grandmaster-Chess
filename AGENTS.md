@@ -1,3 +1,10 @@
+## Project workflow
+
+- Before changing integrations, read the installed skill, version-matched docs, and relevant CLI help; verify behavior instead of relying on memory.
+- Clerk is the sole authority for plans and entitlements. Check features with Clerk on both client and server; never mirror subscription state in Convex.
+- Commit related, verified work at sensible milestones. Never commit local credentials or Vercel environment files.
+- Keep project guidance concise and update both `AGENTS.md` and `CLAUDE.md` when recording lessons.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

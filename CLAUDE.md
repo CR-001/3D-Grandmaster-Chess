@@ -1,5 +1,7 @@
 @AGENTS.md
 
+Keep shared project guidance concise and synchronized with `AGENTS.md`; update both files when recording lessons.
+
 <!-- convex-ai-start -->
 
 This project uses [Convex](https://convex.dev) as its backend.
