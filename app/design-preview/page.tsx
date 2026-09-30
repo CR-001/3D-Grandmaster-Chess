@@ -81,7 +81,7 @@ export default function DesignPreviewPage() {
             </Link>
             <nav className="hidden items-center gap-6 text-xs text-white/48 md:flex"><span className="text-[#e7e1d2]">Play</span><span>Learn</span><span>Puzzles</span></nav>
           </div>
-          <div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded-full border border-white/[0.08] px-3 py-2 text-[11px] text-white/55 sm:flex"><span className="size-1.5 rounded-full bg-[#b8d29b]" /> Design preview</div><Avatar initials="CH" /></div>
+          <div className="flex items-center gap-2 sm:gap-3"><div className="hidden items-center gap-2 rounded-full border border-white/[0.08] px-3 py-2 text-[11px] text-white/55 sm:flex"><span className="size-1.5 rounded-full bg-[#b8d29b]" /> Design preview</div><Link href="/#play" className="rounded-xl bg-[#bdd49f] px-3 py-2 text-[10px] font-semibold text-[#17221a] transition hover:bg-[#cce4ae] sm:px-4 sm:text-[11px]">Start playing</Link><Avatar initials="CH" /></div>
         </header>
 
         <section className="mx-auto max-w-[1190px] pt-4 sm:pt-7">
@@ -99,7 +99,6 @@ export default function DesignPreviewPage() {
 
               <div className="relative mx-auto w-full max-w-[420px] overflow-hidden rounded-[26px] border border-white/[0.07] bg-[#17211c] p-2 sm:max-w-none sm:p-3">
                 <div className="aspect-square w-full"><ChessScene pieces={pieces} orientation="white" selected={null} targets={[]} hint={isPro ? { from: "c2", to: "c3" } : null} onSquareClick={() => undefined} /></div>
-                {isPro && <div className="absolute left-1/2 top-[48%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-[#d3b775]/25 bg-[#1b211b]/95 px-3 py-2 text-[10px] font-medium text-[#f0ddb0] backdrop-blur-sm"><Lightbulb size={13} /> Try supporting the center</div>}
                 <div className="absolute bottom-5 left-5 flex items-center gap-2 rounded-xl border border-white/[0.08] bg-[#111813]/90 px-3 py-2 text-[10px] text-white/65 backdrop-blur-sm"><span className="size-1.5 rounded-full bg-[#b8d29b]" /> 3D board · drag to rotate</div>
               </div>
 
