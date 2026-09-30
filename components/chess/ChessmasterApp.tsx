@@ -38,7 +38,7 @@ function CoachChat({ fen, recentMoves, bestMove, level }: { fen: string; recentM
       redirect: "error",
       auth: {
         bearer: async () => {
-          const token = await getToken({ template: "convex" });
+          const token = await getToken();
           if (!token) throw new Error("Sign in to start a coaching session.");
           return token;
         },
@@ -73,7 +73,7 @@ function ActiveCoachChat({ session, fen, recentMoves, bestMove, level }: { sessi
     session,
     auth: {
       bearer: async () => {
-        const token = await getToken({ template: "convex" });
+        const token = await getToken();
         if (!token) throw new Error("Sign in to start a coaching session.");
         return token;
       },
